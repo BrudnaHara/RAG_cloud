@@ -1,4 +1,6 @@
-import os, json, time
+import os
+import json
+import time
 from fastapi import FastAPI, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
 from dotenv import load_dotenv
@@ -12,15 +14,10 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 BASE = "https://generativelanguage.googleapis.com/v1beta"
 MODEL = "models/gemini-2.0-flash"
 
-# Storage: lokalnie plik, na GCP bucket
-USE_GCS = bool(os.getenv("STORE_BUCKET"))
-if USE_GCS:
-    from google.cloud import storage
-    GCS_BUCKET = os.getenv("STORE_BUCKET")
-else:
-    STORE_DIR = os.path.expanduser(os.getenv("STORE_PATH", "~/rag_cloud"))
-    os.makedirs(os.path.expanduser(STORE_DIR), exist_ok=True)
-    STORE = os.path.join(os.path.expanduser(STORE_DIR), "store.json")
+# Storage: tylko lokalnie
+STORE_DIR = os.path.expanduser(os.getenv("STORE_PATH", "~/rag_cloud_data"))
+os.makedirs(STORE_DIR, exist_ok=True)
+STORE = os.path.join(STORE_DIR, "store.json")
 
 # Limity
 MAX_UPLOAD_MB = 5
@@ -38,22 +35,12 @@ def chunk(text, size=800, overlap=120):
 
 def load_store():
     try:
-        if USE_GCS:
-            client = storage.Client()
-            b = client.bucket(GCS_BUCKET)
-            blob = b.blob("store.json")
-            if not blob.exists():
-                return []
-            data = blob.download_as_text(encoding="utf-8")
-            raw = json.loads(data)
-        else:
-            if not os.path.exists(STORE):
-                return []
-            with open(STORE, "r", encoding="utf-8") as f:
-                raw = json.load(f)
+        if not os.path.exists(STORE):
+            return []
+        with open(STORE, "r", encoding="utf-8") as f:
+            raw = json.load(f)
     except Exception:
         return []
-
     # automigracja: stare wpisy typu str → nowy obiekt
     changed, items = False, []
     for i, it in enumerate(raw if isinstance(raw, list) else []):
@@ -69,15 +56,8 @@ def load_store():
 
 def save_store(items):
     data = json.dumps(items, ensure_ascii=False, indent=2)
-    if USE_GCS:
-        client = storage.Client()
-        b = client.bucket(GCS_BUCKET)
-        b.blob("store.json").upload_from_string(
-            data, content_type="application/json; charset=utf-8"
-        )
-    else:
-        with open(STORE, "w", encoding="utf-8") as f:
-            f.write(data)
+    with open(STORE, "w", encoding="utf-8") as f:
+        f.write(data)
 
 def extract_txt_upload(up: UploadFile) -> str:
     name = (up.filename or "").lower()
@@ -149,7 +129,6 @@ def render(out=""):
 <body>
 <div class="wrap">
   <h3>AI Architect Assistant</h3>
-
   <div class="row">
     <div class="col">
       <h4>Dodaj dokument (TYLKO TXT)</h4>
@@ -160,7 +139,6 @@ def render(out=""):
       <small>Limit {MAX_UPLOAD_MB} MB. Duże pliki podziel wcześniej.</small>
     </div>
   </div>
-
   <div class="row" style="margin-top:12px">
     <div class="col">
       <h4>Lub dodaj blok tekstu</h4>
@@ -171,15 +149,11 @@ def render(out=""):
       <small>Nazwa zostanie nadana automatycznie: blok-YYYYMMDD-HHMMSS.</small>
     </div>
   </div>
-
   <h4>Aktualna baza ({len(docs)}):</h4>
   <ol>{li if li else "<i>Brak materiałów.</i>"}</ol>
-
   <h4>Historia (ta sesja)</h4>
   <div>{hist if hist else "<i>Brak pytań w tej sesji.</i>"}</div>
-
   {out}
-
   <h4 id="ask">Pytanie</h4>
   <form method="post" action="/ask">
     <input type="text" name="q" placeholder="Pytanie">
@@ -259,12 +233,8 @@ def ask(q: str = Form(...)):
     ans = rag_ask(q, flat)
     HISTORY.append((q, ans))
     return RedirectResponse(url="/#ask", status_code=303)
-from fastapi.responses import PlainTextResponse
 
+from fastapi.responses import PlainTextResponse
 @app.get("/debug", response_class=PlainTextResponse)
 def debug():
-    if 'STORE_BUCKET' in os.environ:
-        return f"mode=GCS bucket={os.getenv('STORE_BUCKET')}\n"
-    p = os.path.expanduser(os.getenv("STORE_PATH", "~/rag_cloud"))
-    store = os.path.join(os.path.expanduser(p), "store.json")
-    return f"mode=FILE path={p}\nstore={store}\n"
+    return f"mode=FILE path={STORE_DIR}\nstore={STORE}\n"

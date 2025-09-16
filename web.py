@@ -1,24 +1,50 @@
-import os, json, io
+import os, json, time
 from fastapi import FastAPI, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
 from dotenv import load_dotenv
 import requests
-from pypdf import PdfReader
 
+# ENV
 load_dotenv(os.path.expanduser("~/rag_cloud/.env"))
 API_KEY = os.getenv("GEMINI_API_KEY")
+
+# Gemini API
 BASE = "https://generativelanguage.googleapis.com/v1beta"
 MODEL = "models/gemini-2.0-flash"
-STORE = os.path.expanduser("~/rag_cloud/store.json")
 
-HISTORY = []  # historia w RAM (kasuje się po restarcie kontenera)
+# Trwały magazyn i pamięć sesji
+STORE = os.path.expanduser("~/rag_cloud/store.json")
+HISTORY = []  # reset po restarcie kontenera
+
+# Limity
+MAX_UPLOAD_MB = 5
+
+app = FastAPI(title="AI Architect Assistant")
 
 def load_store():
-    if not os.path.exists(STORE): return []
-    with open(STORE, "r", encoding="utf-8") as f: return json.load(f)
+    if not os.path.exists(STORE):
+        return []
+    with open(STORE, "r", encoding="utf-8") as f:
+        raw = json.load(f)
+    # automigracja: stare wpisy typu str → nowy obiekt {name, chunks}
+    changed = False
+    items = []
+    for i, it in enumerate(raw if isinstance(raw, list) else []):
+        if isinstance(it, dict) and "chunks" in it:
+            items.append(it)
+        elif isinstance(it, str):
+            items.append({
+                "name": f"legacy-{i}",
+                "chunks": chunk(it)
+            })
+            changed = True
+    if changed:
+        save_store(items)
+    return items
 
 def save_store(items):
-    with open(STORE, "w", encoding="utf-8") as f: json.dump(items, f, ensure_ascii=False, indent=2)
+    with open(STORE, "w", encoding="utf-8") as f:
+        json.dump(items, f, ensure_ascii=False, indent=2)
 
 def chunk(text, size=800, overlap=120):
     text = " ".join(text.split())
@@ -28,21 +54,28 @@ def chunk(text, size=800, overlap=120):
         i += max(1, size - overlap)
     return [c for c in out if c.strip()]
 
-def extract_from_upload(up: UploadFile):
+def extract_txt_upload(up: UploadFile) -> str:
     name = (up.filename or "").lower()
     data = up.file.read()
-    if name.endswith(".txt"):
-        return data.decode("utf-8", "ignore")
-    if name.endswith(".pdf"):
-        reader = PdfReader(io.BytesIO(data))
-        return "\n".join(p.extract_text() or "" for p in reader.pages)
-    return ""
-def rag_ask(query, docs):
-    context = "\n".join(docs)
-    prompt = f"Jesteś AI Architect Assistant. Odpowiadasz po polsku, technicznie i rzeczowo. " \
-             f"Korzystaj z KONTEKSTU poniżej; jeśli czegoś nie jesteś pewien, oznacz jako HIPOTEZA. " \
-             f"Nie używaj żadnych znaków specjalnych typu *, _, ~, ` ani formatowania Markdown. " \
-             f"Pytanie: {query}\n\nKONTEKST:\n{context}"
+    if not data:
+        raise ValueError("Pusty plik lub brak danych.")
+    if len(data) > MAX_UPLOAD_MB * 1024 * 1024:
+        raise ValueError(f"Plik > {MAX_UPLOAD_MB} MB. Zmniejsz lub podziel.")
+    if name.endswith(".txt") or (up.content_type or "").startswith("text/plain"):
+        try:
+            return data.decode("utf-8", "ignore")
+        except Exception as e:
+            raise ValueError(f"Nie można zdekodować TXT: {e}")
+    raise ValueError("Nieobsługiwany format. Dozwolone tylko .txt")
+
+def rag_ask(query, docs_flat):
+    context = "\n".join(docs_flat)
+    prompt = (
+        "Jesteś AI Architect Assistant. Odpowiadasz po polsku, technicznie i rzeczowo. "
+        "Korzystaj z KONTEKSTU; jeśli czegoś nie jesteś pewien, oznacz jako HIPOTEZA. "
+        "Nie używaj żadnych znaków specjalnych typu *, _, ~, ` ani formatowania Markdown. "
+        f"Pytanie: {query}\n\nKONTEKST:\n{context}"
+    )
     url = f"{BASE}/{MODEL}:generateContent"
     headers = {"Content-Type":"application/json","X-goog-api-key":API_KEY}
     payload = {"contents":[{"parts":[{"text":prompt}]}]}
@@ -50,19 +83,22 @@ def rag_ask(query, docs):
     r.raise_for_status()
     data = r.json()
     ans = data["candidates"][0]["content"]["parts"][0]["text"]
+    # odszumianie markdown
     ans = ans.replace("*","").replace("_","").replace("~","").replace("`","")
     return ans
 
-
-app = FastAPI(title="AI Architect Assistant")
-
 def render(out=""):
     docs = load_store()
+    # Lista dokumentów jako całości (nazwa + liczba fragmentów)
     li = "".join(
-        f"<li>{i}. {d[:120]}{'...' if len(d)>120 else ''} "
-        f"<form style='display:inline' method='post' action='/del'><input type='hidden' name='idx' value='{i}'><button>Usuń</button></form></li>"
+        f"<li>{i}. <b>{d.get('name','(bez_nazwy)')}</b> "
+        f"({len(d.get('chunks',[]))} fragmentów) "
+        f"<form style='display:inline' method='post' action='/del'>"
+        f"<input type='hidden' name='idx' value='{i}'>"
+        f"<button>Usuń cały materiał</button></form></li>"
         for i, d in enumerate(docs)
     )
+    # Historia sesji
     hist = "".join(
         f"<div class='qa'><div class='q'><b>Pytanie:</b><br><pre>{q}</pre></div>"
         f"<div class='a'><b>Odpowiedź:</b><br><pre>{a}</pre></div></div>"
@@ -84,6 +120,7 @@ def render(out=""):
   .col {{ flex:1 1 100%; }}
   ol {{ padding-left: 20px; }}
   button {{ cursor:pointer }}
+  small {{ color:#666 }}
 </style>
 </head>
 <body>
@@ -92,11 +129,12 @@ def render(out=""):
 
   <div class="row">
     <div class="col">
-      <h4>Dodaj dokument (TXT/PDF)</h4>
+      <h4>Dodaj dokument (TYLKO TXT)</h4>
       <form method="post" action="/upload" enctype="multipart/form-data">
-        <input type="file" name="file" accept=".txt,.pdf">
+        <input type="file" name="file" accept=".txt,text/plain">
         <button type="submit">Dodaj do bazy</button>
       </form>
+      <small>Limit {MAX_UPLOAD_MB} MB. Duże pliki podziel przez split/ocr wcześniej.</small>
     </div>
   </div>
 
@@ -107,11 +145,12 @@ def render(out=""):
         <textarea name="doc" rows="6" placeholder="Wklej blok tekstu"></textarea><br><br>
         <button type="submit">Dodaj do bazy</button>
       </form>
+      <small>Nazwa zostanie nadana automatycznie: blok-YYYYMMDD-HHMMSS.</small>
     </div>
   </div>
 
   <h4>Aktualna baza ({len(docs)}):</h4>
-  <ol>{li}</ol>
+  <ol>{li if li else "<i>Brak materiałów.</i>"}</ol>
 
   <h4>Historia (ta sesja)</h4>
   <div>{hist if hist else "<i>Brak pytań w tej sesji.</i>"}</div>
@@ -128,48 +167,70 @@ def render(out=""):
 </html>"""
     return HTMLResponse(html)
 
+@app.get("/", response_class=HTMLResponse)
+def index(): return render("")
+
+# GET → redirect do /
+@app.get("/add")
+def add_get():
+    return RedirectResponse(url="/")
+@app.get("/upload")
+def upload_get():
+    return RedirectResponse(url="/")
+@app.get("/del")
+def del_get():
+    return RedirectResponse(url="/")
 @app.get("/ask")
 def ask_get():
     return RedirectResponse(url="/#ask")
 
-@app.get("/", response_class=HTMLResponse)
-def index(): return render("")
-
-@app.get("/add")
-def add_get(): return RedirectResponse(url="/")
-
-@app.get("/upload")
-def upload_get(): return RedirectResponse(url="/")
-
-@app.get("/del")
-def del_get(): return RedirectResponse(url="/")
-
 @app.post("/upload", response_class=HTMLResponse)
 def upload(file: UploadFile = File(...)):
-    text = extract_from_upload(file).strip()
-    if text:
-        items = load_store(); items.extend(chunk(text)); save_store(items)
-        msg = f"<p>Dodano z pliku: {file.filename} (pofragmentowano).</p>"
-    else:
-        msg = "<p>Nieobsługiwany format lub pusty plik.</p>"
+    try:
+        text = extract_txt_upload(file).strip()
+        docs = load_store()
+        docs.append({
+            "name": file.filename or f"plik-{int(time.time())}.txt",
+            "chunks": chunk(text)
+        })
+        save_store(docs)
+        msg = f"<p>OK: dodano materiał {file.filename} (pofragmentowano, zapisano jako całość).</p>"
+    except ValueError as e:
+        msg = f"<p>Błąd: {e}</p>"
+    except Exception as e:
+        msg = f"<p>Nieoczekiwany błąd: {type(e).__name__}: {e}</p>"
     return render(msg)
 
 @app.post("/add", response_class=HTMLResponse)
 def add(doc: str = Form("")):
     doc = doc.strip()
     if doc:
-        items = load_store(); items.extend(chunk(doc)); save_store(items)
-    return render("<p>Dodano.</p>")
+        docs = load_store()
+        docs.append({
+            "name": time.strftime("blok-%Y%m%d-%H%M%S"),
+            "chunks": chunk(doc)
+        })
+        save_store(docs)
+    return render("<p>Dodano blok tekstu jako osobny materiał.</p>")
 
 @app.post("/del", response_class=HTMLResponse)
 def delete(idx: int = Form(...)):
-    items = load_store()
-    if 0 <= idx < len(items): items.pop(idx); save_store(items)
-    return render("<p>Usunięto.</p>")
+    docs = load_store()
+    if 0 <= idx < len(docs):
+        removed = docs.pop(idx)
+        save_store(docs)
+        return render(f"<p>Usunięto cały materiał: {removed.get('name','(bez_nazwy)')}.</p>")
+    return render("<p>Indeks poza zakresem.</p>")
 
 @app.post("/ask")
 def ask(q: str = Form(...)):
-    docs = load_store() or ["(brak dokumentów)"]
-    ans = rag_ask(q, docs)
+    docs = load_store()
+    # spłaszcz wszystkie fragmenty ze WSZYSTKICH materiałów
+    flat = []
+    for d in docs:
+        flat.extend(d.get("chunks", []))
+    if not flat:
+        flat = ["(brak dokumentów)"]
+    ans = rag_ask(q, flat)
     HISTORY.append((q, ans))
     return RedirectResponse(url="/#ask", status_code=303)

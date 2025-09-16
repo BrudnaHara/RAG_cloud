@@ -12,39 +12,21 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 BASE = "https://generativelanguage.googleapis.com/v1beta"
 MODEL = "models/gemini-2.0-flash"
 
-# Trwały magazyn i pamięć sesji
-STORE = os.path.expanduser("~/rag_cloud/store.json")
-HISTORY = []  # reset po restarcie kontenera
+# Storage: lokalnie plik, na GCP bucket
+USE_GCS = bool(os.getenv("STORE_BUCKET"))
+if USE_GCS:
+    from google.cloud import storage
+    GCS_BUCKET = os.getenv("STORE_BUCKET")
+else:
+    STORE_DIR = os.path.expanduser(os.getenv("STORE_PATH", "~/rag_cloud"))
+    os.makedirs(os.path.expanduser(STORE_DIR), exist_ok=True)
+    STORE = os.path.join(os.path.expanduser(STORE_DIR), "store.json")
 
 # Limity
 MAX_UPLOAD_MB = 5
+HISTORY = []  # sesyjna historia pytań/odpowiedzi
 
 app = FastAPI(title="AI Architect Assistant")
-
-def load_store():
-    if not os.path.exists(STORE):
-        return []
-    with open(STORE, "r", encoding="utf-8") as f:
-        raw = json.load(f)
-    # automigracja: stare wpisy typu str → nowy obiekt {name, chunks}
-    changed = False
-    items = []
-    for i, it in enumerate(raw if isinstance(raw, list) else []):
-        if isinstance(it, dict) and "chunks" in it:
-            items.append(it)
-        elif isinstance(it, str):
-            items.append({
-                "name": f"legacy-{i}",
-                "chunks": chunk(it)
-            })
-            changed = True
-    if changed:
-        save_store(items)
-    return items
-
-def save_store(items):
-    with open(STORE, "w", encoding="utf-8") as f:
-        json.dump(items, f, ensure_ascii=False, indent=2)
 
 def chunk(text, size=800, overlap=120):
     text = " ".join(text.split())
@@ -53,6 +35,49 @@ def chunk(text, size=800, overlap=120):
         out.append(text[i:i+size])
         i += max(1, size - overlap)
     return [c for c in out if c.strip()]
+
+def load_store():
+    try:
+        if USE_GCS:
+            client = storage.Client()
+            b = client.bucket(GCS_BUCKET)
+            blob = b.blob("store.json")
+            if not blob.exists():
+                return []
+            data = blob.download_as_text(encoding="utf-8")
+            raw = json.loads(data)
+        else:
+            if not os.path.exists(STORE):
+                return []
+            with open(STORE, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+    except Exception:
+        return []
+
+    # automigracja: stare wpisy typu str → nowy obiekt
+    changed, items = False, []
+    for i, it in enumerate(raw if isinstance(raw, list) else []):
+        if isinstance(it, dict) and "chunks" in it:
+            items.append(it)
+        elif isinstance(it, str):
+            items.append({"name": f"legacy-{i}", "chunks": chunk(it)})
+            changed = True
+    if changed:
+        save_store(items)
+        return items
+    return items or []
+
+def save_store(items):
+    data = json.dumps(items, ensure_ascii=False, indent=2)
+    if USE_GCS:
+        client = storage.Client()
+        b = client.bucket(GCS_BUCKET)
+        b.blob("store.json").upload_from_string(
+            data, content_type="application/json; charset=utf-8"
+        )
+    else:
+        with open(STORE, "w", encoding="utf-8") as f:
+            f.write(data)
 
 def extract_txt_upload(up: UploadFile) -> str:
     name = (up.filename or "").lower()
@@ -89,7 +114,6 @@ def rag_ask(query, docs_flat):
 
 def render(out=""):
     docs = load_store()
-    # Lista dokumentów jako całości (nazwa + liczba fragmentów)
     li = "".join(
         f"<li>{i}. <b>{d.get('name','(bez_nazwy)')}</b> "
         f"({len(d.get('chunks',[]))} fragmentów) "
@@ -98,7 +122,6 @@ def render(out=""):
         f"<button>Usuń cały materiał</button></form></li>"
         for i, d in enumerate(docs)
     )
-    # Historia sesji
     hist = "".join(
         f"<div class='qa'><div class='q'><b>Pytanie:</b><br><pre>{q}</pre></div>"
         f"<div class='a'><b>Odpowiedź:</b><br><pre>{a}</pre></div></div>"
@@ -134,7 +157,7 @@ def render(out=""):
         <input type="file" name="file" accept=".txt,text/plain">
         <button type="submit">Dodaj do bazy</button>
       </form>
-      <small>Limit {MAX_UPLOAD_MB} MB. Duże pliki podziel przez split/ocr wcześniej.</small>
+      <small>Limit {MAX_UPLOAD_MB} MB. Duże pliki podziel wcześniej.</small>
     </div>
   </div>
 
@@ -168,18 +191,21 @@ def render(out=""):
     return HTMLResponse(html)
 
 @app.get("/", response_class=HTMLResponse)
-def index(): return render("")
+def index():
+    return render("")
 
-# GET → redirect do /
 @app.get("/add")
 def add_get():
     return RedirectResponse(url="/")
+
 @app.get("/upload")
 def upload_get():
     return RedirectResponse(url="/")
+
 @app.get("/del")
 def del_get():
     return RedirectResponse(url="/")
+
 @app.get("/ask")
 def ask_get():
     return RedirectResponse(url="/#ask")
@@ -194,7 +220,7 @@ def upload(file: UploadFile = File(...)):
             "chunks": chunk(text)
         })
         save_store(docs)
-        msg = f"<p>OK: dodano materiał {file.filename} (pofragmentowano, zapisano jako całość).</p>"
+        msg = f"<p>OK: dodano materiał {file.filename}.</p>"
     except ValueError as e:
         msg = f"<p>Błąd: {e}</p>"
     except Exception as e:
@@ -225,7 +251,6 @@ def delete(idx: int = Form(...)):
 @app.post("/ask")
 def ask(q: str = Form(...)):
     docs = load_store()
-    # spłaszcz wszystkie fragmenty ze WSZYSTKICH materiałów
     flat = []
     for d in docs:
         flat.extend(d.get("chunks", []))
@@ -234,3 +259,12 @@ def ask(q: str = Form(...)):
     ans = rag_ask(q, flat)
     HISTORY.append((q, ans))
     return RedirectResponse(url="/#ask", status_code=303)
+from fastapi.responses import PlainTextResponse
+
+@app.get("/debug", response_class=PlainTextResponse)
+def debug():
+    if 'STORE_BUCKET' in os.environ:
+        return f"mode=GCS bucket={os.getenv('STORE_BUCKET')}\n"
+    p = os.path.expanduser(os.getenv("STORE_PATH", "~/rag_cloud"))
+    store = os.path.join(os.path.expanduser(p), "store.json")
+    return f"mode=FILE path={p}\nstore={store}\n"

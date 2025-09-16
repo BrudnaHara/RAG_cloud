@@ -7,30 +7,23 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 
 BASE = "https://generativelanguage.googleapis.com/v1beta"
 MODEL = "models/gemini-2.0-flash"
-
 def rag_ask(query, docs):
     context = "\n".join(docs)
-    prompt = f"Pytanie: {query}\n\nKONTEKST:\n{context}"
-
+    prompt = f"Jesteś AI Architect Assistant. Odpowiadasz po polsku, technicznie i rzeczowo. " \
+             f"Korzystaj z KONTEKSTU poniżej, a jeśli czegoś nie jesteś pewien, oznacz to jako HIPOTEZA. " \
+             f"Nie używaj żadnych znaków specjalnych typu *, _, ~, ` ani formatowania Markdown. " \
+             f"Pytanie: {query}\n\nKONTEKST:\n{context}"
     url = f"{BASE}/{MODEL}:generateContent"
-    headers = {
-        "Content-Type": "application/json",
-        "X-goog-api-key": API_KEY
-    }
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    { "text": prompt }
-                ]
-            }
-        ]
-    }
-
+    headers = {"Content-Type": "application/json", "X-goog-api-key": API_KEY}
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
     r = requests.post(url, headers=headers, json=payload, timeout=60)
     r.raise_for_status()
     data = r.json()
-    return data["candidates"][0]["content"]["parts"][0]["text"]
+    ans = data["candidates"][0]["content"]["parts"][0]["text"]
+    # oczyszczanie znaków formatowania
+    ans = ans.replace("*", "").replace("_", "").replace("~", "").replace("`", "")
+    return ans
+
 
 if __name__ == "__main__":
     docs = [

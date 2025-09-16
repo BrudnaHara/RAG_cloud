@@ -5,6 +5,7 @@ from fastapi import FastAPI, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
 from dotenv import load_dotenv
 import requests
+from huggingface_hub import HfApi, hf_hub_download
 
 # ENV
 load_dotenv(os.path.expanduser("~/rag_cloud/.env"))
@@ -35,8 +36,13 @@ def chunk(text, size=800, overlap=120):
 
 def load_store():
     try:
-        if not os.path.exists(STORE):
-            return []
+        hf_hub_download(
+            repo_id="ChaosVariable/rag-cloud-data",
+            filename="store.json",
+            local_dir=STORE_DIR,
+            repo_type="dataset",
+            token=os.getenv("HF_TOKEN")
+        )
         with open(STORE, "r", encoding="utf-8") as f:
             raw = json.load(f)
     except Exception:
@@ -58,6 +64,14 @@ def save_store(items):
     data = json.dumps(items, ensure_ascii=False, indent=2)
     with open(STORE, "w", encoding="utf-8") as f:
         f.write(data)
+    api = HfApi()
+    api.upload_file(
+        path_or_fileobj=STORE,
+        path_in_repo="store.json",
+        repo_id="ChaosVariable/rag-cloud-data",
+        repo_type="dataset",
+        token=os.getenv("HF_TOKEN")
+    )
 
 def extract_txt_upload(up: UploadFile) -> str:
     name = (up.filename or "").lower()

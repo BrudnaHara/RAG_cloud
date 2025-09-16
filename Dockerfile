@@ -4,5 +4,5 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-# Render daje PORT w env → użyj go
-CMD ["sh","-c","uvicorn web:app --host 0.0.0.0 --port ${PORT:-8080}"]
+CMD ["uvicorn", "web:app", "--host", "0.0.0.0", "--port", "7860"]
+

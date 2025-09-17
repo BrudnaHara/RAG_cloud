@@ -66,21 +66,6 @@ uvicorn web:app --host 127.0.0.1 --port 8080
 
 Aplikacja będzie dostępna pod adresem: http://127.0.0.1:8080
 
-Deploy w Google Cloud Run
-
-1.Zbuduj i wyślij kontener:
-gcloud run deploy ai-architect-assistant \
-  --source . \
-  --region europe-central2 \
-  --platform managed \
-  --allow-unauthenticated
-
-2.Ustaw zmienną środowiskową:
-gcloud run services update ai-architect-assistant \
-  --region europe-central2 \
-  --update-env-vars GEMINI_API_KEY="twoj_klucz"
-
-Status
 
 Projekt w wersji pokazowej, zrealizowany dla potrzeb zaliczenia kursu.
 W planach: rozbudowa o trwałe sesje, użytkowników i lepsze zarządzanie bazą wiedzy.

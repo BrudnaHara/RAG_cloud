@@ -1,6 +1,6 @@
 # AI Architect Assistant
 
-Prosty RAG (Retrieval-Augmented Generation) uruchomiony w chmurze na **Google Cloud Run**, z wykorzystaniem **Gemini API** jako modelu językowego.
+Prosty RAG (Retrieval-Augmented Generation) z wykorzystaniem **Gemini API** jako modelu językowego.
 
 Projekt został przygotowany jako pokazowe narzędzie w ramach kursu / zaliczenia certyfikacyjnego.
 
@@ -19,23 +19,9 @@ Projekt został przygotowany jako pokazowe narzędzie w ramach kursu / zaliczeni
   - automatyczne oczyszczanie odpowiedzi z formatowania Markdown (gwiazdki, podkreślenia itp.),
   - prompt dostosowany do stylu: *AI Architect Assistant* (technicznie, po polsku, z oznaczaniem hipotez).
 
-- **Hosting**:
-  - wdrożenie w Google Cloud Run (kontener zbudowany z Dockerfile),
-  - publiczny dostęp pod wygenerowanym adresem URL,
-  - konfiguracja klucza API jako zmiennej środowiskowej (`GEMINI_API_KEY`).
-
 ---
 
 ## Struktura repozytorium
-
-rag_cloud/
-├── rag_cloud.py # prosty skrypt testowy (RAG w trybie konsoli)
-├── web.py # aplikacja FastAPI z interfejsem webowym
-├── requirements.txt
-├── Dockerfile
-├── .dockerignore
-└── .gitignore
-
 
 - **`web.py`** – główny plik aplikacji webowej (frontend + backend).
 - **`rag_cloud.py`** – minimalny RAG w trybie konsoli (prototyp).

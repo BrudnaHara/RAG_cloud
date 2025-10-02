@@ -52,6 +52,6 @@ uvicorn web:app --host 127.0.0.1 --port 8080
 
 Aplikacja będzie dostępna pod adresem: http://127.0.0.1:8080
 
-
+Deployowałam ją następnie najpierw na GCP, później na render, jednak końcowo zdecydowałam się na Hugging Face.  
 Projekt w wersji pokazowej, zrealizowany dla potrzeb zaliczenia kursu.
 W planach: rozbudowa o trwałe sesje, użytkowników i lepsze zarządzanie bazą wiedzy.

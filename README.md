@@ -31,6 +31,4 @@ Asystent do streszczania i syntezy wiedzy z własnych materiałów (CAG-style / 
 
 ---
 
- 
-Projekt w wersji pokazowej, zrealizowany dla potrzeb zaliczenia kursu.
-W planach: rozbudowa o trwałe sesje, użytkowników i lepsze zarządzanie bazą wiedzy.
+

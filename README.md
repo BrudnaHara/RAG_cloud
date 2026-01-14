@@ -9,23 +9,23 @@ Zamiast klasycznego RAG z retrieval per zapytanie, aplikacja przekazuje treść 
 
 #### Interfejs webowy (FastAPI)
 
--Formularz do zadawania pytań
--Dodawanie dokumentów TXT lub bloków tekstu
--Historia pytań i odpowiedzi w ramach jednej sesji (RAM)
--Zarządzanie materiałami (lista, liczba chunków, usuwanie całości)
+- Formularz do zadawania pytań
+- Dodawanie dokumentów TXT lub bloków tekstu
+- Historia pytań i odpowiedzi w ramach jednej sesji (RAM)
+- Zarządzanie materiałami (lista, liczba chunków, usuwanie całości)
 
 #### Architektura
 
--Backend: FAST API
--Trwała baza wiedzy synchronizowana z Hugging Face (dataset)
--Automatyczny preprocesing i chunking treści
--Brak retrieval i embeddingów
--Brak zewnątrznego WebUI - aplikacja hostowana jako Space na Hugging Face
--Model: gemini-3-flash-preview
+- Backend: FAST API
+- Trwała baza wiedzy synchronizowana z Hugging Face (dataset)
+- Automatyczny preprocesing i chunking treści
+- Brak retrieval i embeddingów
+- Brak zewnątrznego WebUI - aplikacja hostowana jako Space na Hugging Face
+- Model: gemini-3-flash-preview
 
 #### Styl odpowiedzi
--automatyczne oczyszczanie odpowiedzi z formatowania Markdown (gwiazdki, podkreślenia itp.),
--prompt dostosowany do stylu: *AI Architect Assistant* (technicznie, po polsku, z oznaczaniem hipotez).
+- automatyczne oczyszczanie odpowiedzi z formatowania Markdown (gwiazdki, podkreślenia itp.),
+- prompt dostosowany do stylu: *AI Architect Assistant* (technicznie, po polsku, z oznaczaniem hipotez).
 
 ---
 

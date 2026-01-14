@@ -1,6 +1,7 @@
 # AI Architect Assistant
 
-Asystent do streszczania i syntezy wiedzy z własnych materiałów (CAG-style / long-context). Zamiast klasycznego RAG z retrieval per zapytanie, aplikacja przekazuje treść dokumentów jako kontekst do prompta i generuje odpowiedzi na tej podstawie.
+Asystent do ekstrakcji informacji, syntezy wiedzy i analizy materiałów (CAG-style) 
+Zamiast klasycznego RAG z retrieval per zapytanie, aplikacja przekazuje treść dokumentów jako kontekst do prompta i generuje odpowiedzi na tej podstawie
 
 ---
 
@@ -8,18 +9,23 @@ Asystent do streszczania i syntezy wiedzy z własnych materiałów (CAG-style / 
 
 #### Interfejs webowy (FastAPI)
 
-- Formularz do zadawania pytań
-- Dodawanie dokumentów TXT lub bloków tekstu
-- Prosta baza wiedzy w pliku `store.json` (przechowywana jako plik i synchronizowana z Hugging Face Hub jako dataset)
-- Historia pytań i odpowiedzi w ramach jednej sesji (RAM)
+-Formularz do zadawania pytań
+-Dodawanie dokumentów TXT lub bloków tekstu
+-Historia pytań i odpowiedzi w ramach jednej sesji (RAM)
+-Zarządzanie materiałami (lista, liczba chunków, usuwanie całości)
 
-#### Integracja z Gemini API
+#### Architektura
 
-- Generowanie przez `models.generateContent` (v1beta)
-- Model: `models/gemini-3-flash-preview`
+-Backend: FAST API
+-Trwała baza wiedzy synchronizowana z Hugging Face (dataset)
+-Automatyczny preprocesing i chunking treści
+-Brak retrieval i embeddingów
+-Brak zewnątrznego WebUI - aplikacja hostowana jako Space na Hugging Face
+-Model: gemini-3-flash-preview
 
-- automatyczne oczyszczanie odpowiedzi z formatowania Markdown (gwiazdki, podkreślenia itp.),
-- prompt dostosowany do stylu: *AI Architect Assistant* (technicznie, po polsku, z oznaczaniem hipotez).
+#### Styl odpowiedzi
+-automatyczne oczyszczanie odpowiedzi z formatowania Markdown (gwiazdki, podkreślenia itp.),
+-prompt dostosowany do stylu: *AI Architect Assistant* (technicznie, po polsku, z oznaczaniem hipotez).
 
 ---
 
